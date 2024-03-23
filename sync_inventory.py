@@ -14,7 +14,7 @@ file_handler.setLevel(logging.DEBUG)  # Set the file handler's level
 
 # Create a console handler
 console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)  # Set the console handler's level
+console_handler.setLevel(logging.DEBUG)  # Set the console handler's level
 
 # Define the log format
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -59,7 +59,7 @@ def dl_inventory_locs():
             if has_next_page:
                 locations = locations.next_page()
             
-        with open("./locations.json",'wt') as outfile:
+        with open("./data/locations.json",'wt') as outfile:
             outfile.write(json.dumps(loc_list,indent=4))
 
 def dl_inventory():
@@ -77,7 +77,76 @@ def dl_inventory():
             if do_next:
                 inventory_levels=inventory_levels.next_page()
                 
-        with open("./inventory_levels.json",'wt') as outfile:
+        with open("./data/inventory_levels.json",'wt') as outfile:
             outfile.write(json.dumps(levels_list,indent=4))
+
+def get_onbuy_token():
+    
+    url = 'https://api.onbuy.com/v2/auth/request-token'
+    
+    payload=json.dumps({
+        'secret_key': ONBUY_SECRET_KEY_LIVE,
+        'consumer_key': ONBUY_CONSUMER_KEY_LIVE
+    })
+    
+    # payload={
+    #     'secret_key': ONBUY_SECRET_KEY_TEST,
+    #     'consumer_key': ONBUY_CONSUMER_KEY_TEST
+    # }
+        
+    headers = {
+        'Content-Type': 'application/json'
+    }
+    response = requests.post(url,json=payload,headers=headers,stream=False)
+    logger.debug("Response:")
+    logger.debug(response.content)
+    import pdb; pdb.set_trace()
+    if response.status_code==200:
+        return response.json()
+        
+def sync_inventory():
+
+
+    with shopify.Session.temp(SHOPIFY_URL, API_VERSION, SHOPIFY_ACCESS_TOKEN):
+        inventory_levels = shopify.InventoryLevel.find(location_ids=LOCATION_ID)
+        
+        do_next = True
+        
+        while do_next:
+            listings = []
+            for level in inventory_levels:
+                inventory_item = shopify.InventoryItem.find(level.inventory_item_id)
+                if not inventory_item:
+                    continue
+                
+                cost = inventory_item.cost
+                    
+                listings.append({
+                    'sku':inventory_item.sku,
+                    'price':inventory_item.cost,
+                    'stock':level.available
+                })
+            
+            payload  = {
+                'site_id' : ONBUY_SITE_ID_UK,
+                'listings' : listings
+            }
+            
+            headers = {
+                'Authorization': '4E7DREERR2189-A943-4697-C295-fCA434558518',
+                'Content-Type': 'application/json'
+            }
+            
+            payload_json = json.dumps(payload)
+            response = requests.post('https://api.onbuy.com/v2/listings/by-sku',headers=headers,data=payload_json)
+            
+            logger.debug("Response:")
+            logger.debug(response.text)
+            
+            do_next = inventory_levels.has_next_page()
+            if do_next:
+                inventory_levels=inventory_levels.next_page()
+            
+            
 if __name__ == "__main__":    
-    dl_inventory()
+    token = get_onbuy_token()
