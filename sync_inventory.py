@@ -154,6 +154,7 @@ def pre_inventory():
             while do_next:
                 for level in inventory_levels:
                     inventory_item = shopify.InventoryItem.find(level.inventory_item_id)
+                    time.sleep(2)
                     if not inventory_item:
                         continue
                     if  inventory_item.sku in ['',None]:
@@ -173,6 +174,7 @@ def pre_inventory():
                     graphql_response = json.loads(graphql.execute(query))
 
                     variants = graphql_response.get('data',{}).get('productVariants',{}).get('edges',[])
+                    time.sleep(2)
                     if len(variants)<=0:
                         continue
                     
@@ -180,8 +182,10 @@ def pre_inventory():
                     rows_count += 1
                     
                 do_next = inventory_levels.has_next_page()
+                time.sleep(2)
                 if do_next:
                     inventory_levels=inventory_levels.next_page()
+                    time.sleep(2)
                 
             
             logger.info(f"Total listing item: {rows_count}")
