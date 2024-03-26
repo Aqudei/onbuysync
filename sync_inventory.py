@@ -3,6 +3,9 @@ import logging
 import requests
 from decouple import config
 import shopify
+import time
+import datetime
+import csv
 
 # Create a logger
 logger = logging.getLogger(__name__)
@@ -29,7 +32,7 @@ SHOPIFY_URL = config('SHOPIFY_URL')
 SHOPIFY_ACCESS_TOKEN = config('SHOPIFY_ACCESS_TOKEN')
 SHOPIFY_API_KEY = config('SHOPIFY_API_KEY')
 SHOPIFY_API_SECRET =config('SHOPIFY_API_SECRET')
-
+API_VERSION = '2024-01'
 ONBUY_URL =	config('ONBUY_URL')
 ONBUY_SELLER_ID = config('ONBUY_SELLER_ID')
 ONBUY_SELLER_ENTITY_ID	= config('ONBUY_SELLER_ENTITY_ID')
@@ -42,7 +45,7 @@ ONBUY_CONSUMER_KEY_TEST =	config('ONBUY_CONSUMER_KEY_TEST')
 ONBUY_SECRET_KEY_TEST =	config('ONBUY_SECRET_KEY_TEST')
 LOCATION_ID = config('LOCATION_ID')
 
-API_VERSION = '2024-01'
+
 
 def dl_inventory_locs():
 
@@ -89,64 +92,100 @@ def get_onbuy_token():
         'consumer_key': ONBUY_CONSUMER_KEY_LIVE
     })
     
-    # payload={
-    #     'secret_key': ONBUY_SECRET_KEY_TEST,
-    #     'consumer_key': ONBUY_CONSUMER_KEY_TEST
-    # }
+    # url = "https://api.onbuy.com/v2auth/request-token"
+
+    payload = {
+        'secret_key': ONBUY_SECRET_KEY_LIVE,
+        'consumer_key': ONBUY_CONSUMER_KEY_LIVE
+        }
+    files=[
+
+    ]
+    headers = {
+
+    }
+
+    
+    response = requests.request("POST", url, headers=headers, data=payload, files=files)
+    print(response.text)
+    
+    while response.status_code==504:
+        response = requests.request("POST", url, headers=headers, data=payload, files=files)
+        print(response.text)
+        time.sleep(1)
+    
+    return response.json()
+
+def upload_listings(filename):
+
+    token = get_onbuy_token()
+
+    payload  = {
+        'site_id' : ONBUY_SITE_ID_UK,
+        'listings' : listings
+    }
+    
+    delta = datetime.datetime.fromtimestamp(int(token['expires_at']))  - datetime.datetime.now()
+    if delta.total_seconds() <  (5 * 60):
+        token = get_onbuy_token()
         
     headers = {
+        'Authorization': f"{token['access_token']}",
         'Content-Type': 'application/json'
     }
-    response = requests.post(url,data=payload,headers=headers,stream=False)
-    logger.debug("Response:")
-    logger.debug(response.content)
+    
     import pdb; pdb.set_trace()
-    if response.status_code==200:
-        return response.json()
-        
-def sync_inventory():
+    payload_json = json.dumps(payload)
+    response = requests.put('https://api.onbuy.com/v2/listings/by-sku',headers=headers,data=payload_json)
+    
+    logger.debug("Response:")
+    logger.debug(response.text)
 
-
+def pre_inventory():
     with shopify.Session.temp(SHOPIFY_URL, API_VERSION, SHOPIFY_ACCESS_TOKEN):
+        graphql = shopify.GraphQL()
         inventory_levels = shopify.InventoryLevel.find(location_ids=LOCATION_ID)
         
         do_next = True
-        
-        while do_next:
-            listings = []
-            for level in inventory_levels:
-                inventory_item = shopify.InventoryItem.find(level.inventory_item_id)
-                if not inventory_item:
-                    continue
-                
-                cost = inventory_item.cost
+        with open('data/listings.csv','wt',newline='') as outfile:
+            writer = csv.writer(outfile)
+            writer.writerow(('sku','price','stock'))
+            rows_count = 0
+            while do_next:
+                for level in inventory_levels:
+                    inventory_item = shopify.InventoryItem.find(level.inventory_item_id)
+                    if not inventory_item:
+                        continue
+                    if  inventory_item.sku in ['',None]:
+                        continue
                     
-                listings.append({
-                    'sku':inventory_item.sku,
-                    'price':inventory_item.cost,
-                    'stock':level.available
-                })
+                    query = '''query {
+                        productVariants(first: 1,query:"sku:'%s'") {
+                            edges {
+                                node {
+                                    sku
+                                    price
+                                }
+                            }
+                        }
+                    }''' % (inventory_item.sku,)
+                    
+                    graphql_response = json.loads(graphql.execute(query))
+
+                    variants = graphql_response.get('data',{}).get('productVariants',{}).get('edges',[])
+                    if len(variants)<=0:
+                        continue
+                    
+                    writer.writerow((inventory_item.sku,variants[0]['node']['price'],level.available))
+                    rows_count += 1
+                    
+                do_next = inventory_levels.has_next_page()
+                if do_next:
+                    inventory_levels=inventory_levels.next_page()
+                
             
-            payload  = {
-                'site_id' : ONBUY_SITE_ID_UK,
-                'listings' : listings
-            }
-            
-            headers = {
-                'Authorization': '4E7DREERR2189-A943-4697-C295-fCA434558518',
-                'Content-Type': 'application/json'
-            }
-            
-            payload_json = json.dumps(payload)
-            response = requests.post('https://api.onbuy.com/v2/listings/by-sku',headers=headers,data=payload_json)
-            
-            logger.debug("Response:")
-            logger.debug(response.text)
-            
-            do_next = inventory_levels.has_next_page()
-            if do_next:
-                inventory_levels=inventory_levels.next_page()
+            logger.info(f"Total listing item: {rows_count}")
             
             
 if __name__ == "__main__":    
-    token = get_onbuy_token()
+    pre_inventory()
