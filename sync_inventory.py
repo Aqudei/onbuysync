@@ -140,6 +140,97 @@ def upload_listings(filename):
     
     logger.debug("Response:")
     logger.debug(response.text)
+    
+def dl_listings():
+    token = get_onbuy_token()
+    
+    url = "https://api.onbuy.com/v2/listings"
+    
+    limit = 50
+    offset = 0
+    
+    params = {
+        'site_id':ONBUY_SITE_ID_UK,
+        'sort[last_created]':'asc',
+        'site_id':ONBUY_SITE_ID_UK,
+        'limit' : limit,
+        'offset'  : offset
+    }
+    payload={}
+    headers = {
+        'Authorization': token['access_token']
+    }
+
+    do_next = True
+    
+    with open("./data/listings.csv",'wt', newline='') as outfile:
+        writer=csv.writer(outfile)
+        writer.writerow(('name','sku','price','stock'))
+        
+        while do_next:
+            logger.info(f"@dl_listings, limit: {params['limit']}, offset: {params['offset']}")
+            response = requests.request("GET", url, headers=headers, data=payload, params=params)
+            if not response.status_code==200:
+                logger.error(response.text)
+                break
+            
+            results = response.json().get('results',[])
+            if len(results) <= 0:
+                break
+        
+        
+            for item in results:
+                writer.writerow((item['name'],item['sku'],item['price'],item['stock']))
+            
+            if len(results) < params['limit']:
+                break
+            
+            params.update({
+                'offset' :params['offset'] + params['limit']
+            }) 
+            
+
+def update_prices():
+    with open('./data/listings.csv','rt') as infile:
+        with shopify.Session.temp(SHOPIFY_URL, API_VERSION, SHOPIFY_ACCESS_TOKEN):
+            graphql = shopify.GraphQL()
+            reader = csv.DictReader(infile)
+            listings = []
+            for item in reader:
+                query = '''query {
+                    productVariants(first: 1,query:"sku:'%s'") {
+                        edges {
+                            node {
+                                sku
+                                price
+                                inventoryItem {
+                                    id
+                                    available
+                                }
+                            }
+                        }
+                    }
+                }''' % (item['sku'])
+                
+                graphql_response = json.loads(graphql.execute(query))
+                variants = graphql_response.get('data',{}).get('productVariants',{}).get('edges',[])
+                if len(variants)<=0:
+                    continue
+                
+                import pdb; pdb.set_trace()
+
+                inventory_item = shopify.InventoryItem.find(variants[0].inventory_item_id)
+
+                listings.append(
+                    {
+                        'sku':variants[0]['sku'],
+                        'price':variants[0]['price'],
+                        'stock':inventory_item.level
+                    }
+                )
+                
+    
+        
 
 def pre_inventory():
     with shopify.Session.temp(SHOPIFY_URL, API_VERSION, SHOPIFY_ACCESS_TOKEN):
@@ -147,7 +238,7 @@ def pre_inventory():
         inventory_levels = shopify.InventoryLevel.find(location_ids=LOCATION_ID)
         
         do_next = True
-        with open('data/listings.csv','wt',newline='') as outfile:
+        with open('./data/listings.csv','wt',newline='') as outfile:
             writer = csv.writer(outfile)
             writer.writerow(('sku','price','stock'))
             rows_count = 0
@@ -192,4 +283,5 @@ def pre_inventory():
             
             
 if __name__ == "__main__":    
-    pre_inventory()
+    # dl_listings()
+    update_prices()
