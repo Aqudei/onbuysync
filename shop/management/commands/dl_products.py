@@ -88,7 +88,7 @@ class Command(BaseCommand):
                 image = product['images'][0]['src']
             for a in product['attributes']:
                 if 'BRAND' in a.get("name","").upper():
-                    brand = a.get('options',[''])[0]
+                    brand = a.get('options')[0] if a.get('options') else ''
                     
             product_stock_quantity = 0
             if not product.get('stock_quantity') in [None,'']:
