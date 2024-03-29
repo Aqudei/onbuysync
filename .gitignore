@@ -2,3 +2,7 @@ venv/
 .env
 data/
 debug.log
+__pycache__
+db.sqlite3
+*.py[cod]
+local_settings.py

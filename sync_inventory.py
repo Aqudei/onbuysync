@@ -1,11 +1,15 @@
 import json
 import logging
+import os
 import requests
 from decouple import config
 import shopify
 import time
 import datetime
 import csv
+from woocommerce import API
+import openpyxl
+import argparse
 
 # Create a logger
 logger = logging.getLogger(__name__)
@@ -45,7 +49,17 @@ ONBUY_CONSUMER_KEY_TEST =	config('ONBUY_CONSUMER_KEY_TEST')
 ONBUY_SECRET_KEY_TEST =	config('ONBUY_SECRET_KEY_TEST')
 LOCATION_ID = config('LOCATION_ID')
 
+WOOCOMMERCE_CONSUMER_KEY = config('WOOCOMMERCE_CONSUMER_KEY') 
+WOOCOMMERCE_CONSUMER_SECRET = config('WOOCOMMERCE_CONSUMER_SECRET')
+WOOCOMMERCE_API_URL = config('WOOCOMMERCE_API_URL')
+WOOCOMMERCE_API_VERSION = config('WOOCOMMERCE_API_VERSION')
 
+wcapi = API(
+    url=WOOCOMMERCE_API_URL,
+    consumer_key=WOOCOMMERCE_CONSUMER_KEY,
+    consumer_secret=WOOCOMMERCE_CONSUMER_SECRET,
+    version=WOOCOMMERCE_API_VERSION
+)
 
 def dl_inventory_locs():
 
@@ -65,24 +79,66 @@ def dl_inventory_locs():
         with open("./data/locations.json",'wt') as outfile:
             outfile.write(json.dumps(loc_list,indent=4))
 
-def dl_inventory():
-    levels_list = []
-    with shopify.Session.temp(SHOPIFY_URL, API_VERSION, SHOPIFY_ACCESS_TOKEN):
-        inventory_levels = shopify.InventoryLevel.find(location_ids=LOCATION_ID)
-        
-        do_next = True
-        
-        while do_next:
-            for level in inventory_levels:
-                levels_list.append(level.to_dict())
-            
-            do_next = inventory_levels.has_next_page()
-            if do_next:
-                inventory_levels=inventory_levels.next_page()
-                
-        with open("./data/inventory_levels.json",'wt') as outfile:
-            outfile.write(json.dumps(levels_list,indent=4))
 
+def parse_links(headers):
+    links = headers.get("Link")
+    parts = links.split(",")
+        
+    # Create a dictionary to store parsed links
+    parsed_links = {}
+    
+    # Loop through each link and extract rel and URL
+    for link in parts:
+        url, rel = link.split(';')
+        url = url.strip('</> ')
+        rel = rel.split('=')[1].strip('"')
+        parsed_links[rel] = url.replace(f"{WOOCOMMERCE_API_URL}/wp-json/{WOOCOMMERCE_API_VERSION}","").strip("/")
+    
+    # Extract next and previous links if present
+    next_link = parsed_links.get('next')
+    prev_link = parsed_links.get('prev')
+    return prev_link, next_link
+    
+def dl_products():
+    logger.info("Downloading products.")
+
+    params = {
+        'per_page' : 100
+    }
+    response = wcapi.get("products", params=params)
+    if not response.status_code==200:
+        logger.warning("No products")
+        return
+    
+    do_next = True
+    page = 1
+    logger.info(f"Downloading page #{page}")
+    while do_next:
+        products = response.json()
+        with open(f"./data/products/products-{page}.json",'wt') as outfile:
+            outfile.write(json.dumps(products))
+        page += 1    
+        prev, next = parse_links(response.headers)
+        logger.info("prev: {}, next: {}".format(prev,next))
+        if next in [None,'']:
+            do_next = False
+        else:
+            response = wcapi.get(next)
+            logger.info(f"Downloading page #{page}")
+            
+def dl_variants(file_json):
+    logger.info("Download variants from products file: {}".format(file_json))
+    with open(file_json,'rt') as infile:
+        products = json.loads(infile.read())
+        for p in products:
+            if not p['status'] == 'publish':
+                continue
+            
+            if len(p['variations']) > 0:
+                variants = wcapi.get(f"products/{p['id']}/variations")
+                with open('./data/variants/product-{}-variants.json'.format(p['id']),'wt') as outfile:
+                    outfile.write(json.dumps(variants.json(),indent=4))
+                    
 def get_onbuy_token():
     
     url = 'https://api.onbuy.com/v2/auth/request-token'
@@ -146,15 +202,13 @@ def dl_listings():
     
     url = "https://api.onbuy.com/v2/listings"
     
-    limit = 50
+    limit = 100
     offset = 0
     
     params = {
         'site_id':ONBUY_SITE_ID_UK,
-        'sort[last_created]':'asc',
-        'site_id':ONBUY_SITE_ID_UK,
         'limit' : limit,
-        'offset'  : offset
+        'offset'  : offset,
     }
     payload={}
     headers = {
@@ -283,5 +337,20 @@ def pre_inventory():
             
             
 if __name__ == "__main__":    
-    # dl_listings()
-    update_prices()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dl-products",action='store_true')
+    parser.add_argument("--sync-file")
+    parser.add_argument("--dl-variants",action='store_true')
+
+    args = parser.parse_args()
+    
+    if args.dl_products:
+        dl_products()
+    
+    if args.dl_variants:
+        
+        files = os.listdir("./data/products/")
+        for f in files:
+            dl_variants(os.path.join("./data/products",f))
+        
+    # update_prices()
