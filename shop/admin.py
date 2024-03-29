@@ -5,11 +5,12 @@ from .models import Product, Variation,Category
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    pass
+    list_display = ('name','sku','stock_quantity')
 
 @admin.register(Variation)
 class VariationAdmin(admin.ModelAdmin):
-    pass
+    list_display = ('name','sku','stock_quantity')
+
 
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
