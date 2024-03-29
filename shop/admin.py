@@ -5,7 +5,8 @@ from .models import Product, Variation,Category
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ('name','sku','stock_quantity')
+    list_display = ('name','sku','stock_quantity','status')
+    
 
 @admin.register(Variation)
 class VariationAdmin(admin.ModelAdmin):
