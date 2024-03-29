@@ -31,6 +31,8 @@ class Product(models.Model):
     stock_quantity = models.PositiveIntegerField(default=0)
     brand = models.CharField(max_length=50, null=True,blank=True)
     categories = models.ManyToManyField("shop.Category")
+    image = models.URLField(max_length=400, null=True,blank=True)
+    variations_ids = models.CharField(max_length=150,null=True,blank=True)
     
     class Meta:
         verbose_name = _("product")
@@ -44,7 +46,7 @@ class Product(models.Model):
 
 class Variation(models.Model):
 
-    product = models.ForeignKey("shop.Product", on_delete=models.CASCADE)
+    product = models.ForeignKey("shop.Product", on_delete=models.CASCADE,related_name='variations')
     name = models.CharField(max_length=300)
     external_id = models.PositiveBigIntegerField(default=0)
     sku = models.CharField(max_length=50)
@@ -52,6 +54,7 @@ class Variation(models.Model):
     regular_price = models.DecimalField(max_digits=8, decimal_places=2, default=0.0)
     sale_price = models.DecimalField(max_digits=8, decimal_places=2, default=0.0)
     stock_quantity = models.PositiveIntegerField(default=0)
+    image = models.URLField(max_length=400, null=True,blank=True)
     
     class Meta:
         verbose_name = _("variation")

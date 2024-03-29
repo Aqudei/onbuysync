@@ -1,4 +1,5 @@
 from decimal import Decimal
+import time
 from django.core.management.base import BaseCommand
 from django.conf import settings
 from django.forms import ValidationError
@@ -11,7 +12,8 @@ wcapi = API(
     url=settings.WOOCOMMERCE_API_URL,
     consumer_key=settings.WOOCOMMERCE_CONSUMER_KEY,
     consumer_secret=settings.WOOCOMMERCE_CONSUMER_SECRET,
-    version=settings.WOOCOMMERCE_API_VERSION
+    version=settings.WOOCOMMERCE_API_VERSION,
+    timeout=20
 )
 
 logger = logging.getLogger(__name__)
@@ -70,52 +72,57 @@ class Command(BaseCommand):
 
     def __process_products(self, products):
         for product in products:
-            try:
-                brand = '' 
-                for a in product['attributes']:
-                    if 'BRAND' in a.get("name","").upper():
-                        brand = a.get('options',[''])[0]
-                        
-                product_id = product.pop('id')
-                product_defaults = {
-                    'name': product['name'],
-                    'status': product['status'],
-                    'sku': product['sku'],
-                    'price': product.get('price') if not product.get('price','') == '' else 0.0,
-                    'regular_price': product.get('regular_price','') if not product.get('regular_price','') == '' else 0.0,
-                    'sale_price': product.get('sale_price',0.0) if not product.get('sale_price','') == '' else 0.0,
-                    'stock_quantity': int(product.get('stock_quantity',0)),
-                    'brand':brand
-                }
+            
+            time.sleep(2)
+            
+            brand = '' 
+            image = ''
+            
+            if len(product['images'])>0:
+                image = product['images'][0]['src']
+            for a in product['attributes']:
+                if 'BRAND' in a.get("name","").upper():
+                    brand = a.get('options',[''])[0]
+                    
+            product_id = product.pop('id')
+            product_defaults = {
+                'name': product['name'],
+                'status': product['status'],
+                'sku': product['sku'],
+                'price': product.get('price') if not product.get('price','') == '' else 0.0,
+                'regular_price': product.get('regular_price','') if not product.get('regular_price','') == '' else 0.0,
+                'sale_price': product.get('sale_price',0.0) if not product.get('sale_price','') == '' else 0.0,
+                'stock_quantity': product.get('stock_quantity') if not product.get('stock_quantity',0) in [None,'']  else 0,
+                'brand':brand,
+                'image':image,
+                'variations_ids':', '.join("{}".format(p) for p in product.get('variations',[]))
+            }
 
-                product_obj,_ = Product.objects.update_or_create(external_id=product_id, defaults=product_defaults)
-                
-                cats = []
-                for cat in product['categories']:
-                    obj, _ = Category.objects.update_or_create(name=cat['name'])
-                    cats.append(obj)
-                
-                product_obj.categories.set(cats)
-                
-                variations = product['variations'] 
-                if len(variations) > 0:
-                    logger.info("Downloading Variations...")
-                    variants = wcapi.get(f"products/{product_id}/variations")
-                    for variation in variants:
-                        options = [a.get('option') for a in variation['attributes'] if a.get('option')]
-                        
-                        variant_defaults = {
-                            'name' :"{}-{}".format(product['name'], '-'.join(options) ).strip("- "),
-                            'sku': variation['sku'],
-                            'price': variation.get('price') if not variation.get('price','') == '' else 0.0,
-                            'regular_price': variation.get('regular_price') if not variation.get('regular_price','') == '' else 0.0,
-                            'sale_price': variation.get('sale_price',0.0) if not variation.get('sale_price','') == '' else 0.0,
-                            'stock_quantity': int(variation.get('stock_quantity',0)),
-                            'product' : product_obj
-                        }
+            product_obj,_ = Product.objects.update_or_create(external_id=product_id, defaults=product_defaults)
+            
+            cats = []
+            for cat in product['categories']:
+                obj, _ = Category.objects.update_or_create(name=cat['name'])
+                cats.append(obj)
+            
+            product_obj.categories.set(cats)
+            
+            variations = product['variations'] 
+            if len(variations) > 0:
+                logger.info(f"Downloading Variations for product #{product_id}, <{product['name']}>...")
+                variants = wcapi.get(f"products/{product_id}/variations")
+                for variation in variants.json():
+                    options = [a.get('option') for a in variation['attributes'] if a.get('option')]
+                    
+                    variant_defaults = {
+                        'name' :"{}-{}".format(product['name'], '-'.join(options) ).strip("- "),
+                        'sku': variation['sku'],
+                        'price': variation.get('price') if not variation.get('price','') == '' else 0.0,
+                        'regular_price': variation.get('regular_price') if not variation.get('regular_price','') == '' else 0.0,
+                        'sale_price': variation.get('sale_price',0.0) if not variation.get('sale_price','') == '' else 0.0,
+                        'stock_quantity': variation.get('stock_quantity') if not variation.get('stock_quantity') in [None,'']  else 0,
+                        'product' : product_obj,
+                        'image':variation.get('image',{}).get('src')
+                    }
 
-                        Variation.objects.update_or_create(external_id=variation['id'], defaults=variant_defaults)
-            except ValidationError:
-                pass
-                logger.error(tb.format_exc())
-                import pdb; pdb.set_trace()
+                    Variation.objects.update_or_create(external_id=variation['id'], defaults=variant_defaults)
