@@ -6,15 +6,46 @@ from django.conf import settings
 
 class Command(BaseCommand):
     
+    def __get_onbuy_token(self):
+    
+        url = 'https://api.onbuy.com/v2/auth/request-token'
+        payload={
+            'secret_key': settings.ONBUY_SECRET_KEY_LIVE,
+            'consumer_key': settings.ONBUY_CONSUMER_KEY_LIVE
+        }
+        
+        response = requests.request("POST", url, data=payload)
+        print(response.text)
+        
+        return response.json()
+    
+    def __find_category(self,search):
+        
+        params = {
+            'site_id' : settings.ONBUY_SITE_ID_UK,
+            'filter[can_list_in]' : 1,
+            'filter[search]' : search,
+            
+        }
+        url ="https://api.onbuy.com/v2/categories"
+        token = self.__get_onbuy_token()
+        headers = {
+            'Authorization' : token['access_token']
+        }
+        response = requests.get(url,headers=headers,params=params)
+        return response.json()
+    
     def handle(self, *args, **options):
         products = Product.objects.filter(status='publish')
         for product in products:
             url = "https://api.onbuy.com/v2/products"
-            
+            category_name = product.categories.first().name.split("&amp;")[0]
+            category = self.__find_category(category_name)
+            import pdb; pdb.set_trace()
         
             payload = json.dumps({
                 "site_id": settings.ONBUY_SITE_ID_UK,
-                "category_id": "3407",
+                "category_id": category.get('results',[])[0].get('category_id'),
                 "live": "1",
                 "brand_name": "Test brand",
                 "product_name": "Super Bra",

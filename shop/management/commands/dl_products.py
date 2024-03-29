@@ -90,6 +90,11 @@ class Command(BaseCommand):
                 if 'BRAND' in a.get("name","").upper():
                     brand = a.get('options',[''])[0]
                     
+            product_stock_quantity = 0
+            if not product.get('stock_quantity') in [None,'']:
+                product_stock_quantity = int(product.get('stock_quantity'))
+                product_stock_quantity = 0 if product_stock_quantity <= 0 else product_stock_quantity
+            
             product_id = product.pop('id')
             product_defaults = {
                 'name': product['name'],
@@ -98,7 +103,7 @@ class Command(BaseCommand):
                 'price': product.get('price') if not product.get('price','') == '' else 0.0,
                 'regular_price': product.get('regular_price','') if not product.get('regular_price','') == '' else 0.0,
                 'sale_price': product.get('sale_price',0.0) if not product.get('sale_price','') == '' else 0.0,
-                'stock_quantity': product.get('stock_quantity') if not product.get('stock_quantity',0) in [None,'']  else 0,
+                'stock_quantity': product_stock_quantity,
                 'brand':brand,
                 'image':image,
                 'variations_ids':', '.join("{}".format(p) for p in product.get('variations',[]))
@@ -120,13 +125,18 @@ class Command(BaseCommand):
                 for variation in variants.json():
                     options = [a.get('option') for a in variation['attributes'] if a.get('option')]
                     
+                    variant_stock_quantity = 0
+                    if not variation.get('stock_quantity') in [None,'']:
+                        variant_stock_quantity = int(variation.get('stock_quantity'))
+                        variant_stock_quantity = 0 if variant_stock_quantity <= 0 else variant_stock_quantity
+                        
                     variant_defaults = {
                         'name' :"{}-{}".format(product['name'], '-'.join(options) ).strip("- "),
                         'sku': variation['sku'],
                         'price': variation.get('price') if not variation.get('price','') == '' else 0.0,
                         'regular_price': variation.get('regular_price') if not variation.get('regular_price','') == '' else 0.0,
                         'sale_price': variation.get('sale_price',0.0) if not variation.get('sale_price','') == '' else 0.0,
-                        'stock_quantity': variation.get('stock_quantity') if not variation.get('stock_quantity') in [None,'']  else 0,
+                        'stock_quantity': variant_stock_quantity,
                         'product' : product_obj,
                         'image':variation.get('image').get('src') if variation.get('image') else ''
                     }

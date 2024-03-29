@@ -5,11 +5,11 @@ from .models import Product, Variation,Category
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ('name','sku','stock_quantity','status','brand', 'categories')
+    list_display = ('name','sku','stock_quantity','status','brand', 'category')
     
-    def categories(self,obj):
-        
-        cats = ','.join([c.name for c in obj.categories]).strip(",")
+
+    def category(self, obj):
+        cats = ', '.join([c.name for c in obj.categories.all()]).strip(", ")
         return cats
         
 
