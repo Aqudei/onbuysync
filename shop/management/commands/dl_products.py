@@ -1,6 +1,6 @@
 from decimal import Decimal
 import time
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandParser
 from django.conf import settings
 from django.forms import ValidationError
 from shop.models import Product, Variation, Category
@@ -20,7 +20,10 @@ logger = logging.getLogger(__name__)
 
 class Command(BaseCommand):
     help = 'Prints "Hello, world!"'
-    
+    def add_arguments(self, parser: CommandParser) -> None:
+        parser.add_argument("--start-page",type=int, default=1)
+        
+        
     def __parse_links(self, headers):
         links = headers.get("Link")
         parts = links.split(",")
@@ -45,15 +48,18 @@ class Command(BaseCommand):
         logger.debug("Downloading products.")
 
         params = {
-            'per_page' : 100
+            'per_page' : 100,
+            'page': options['start_page']
         }
+        
+
         response = wcapi.get("products", params=params)
         if not response.status_code==200:
             logger.warning("No products")
             return
             
         do_next = True
-        page = 1
+        page = options['start_page']
 
         while do_next:
     
@@ -122,7 +128,7 @@ class Command(BaseCommand):
                         'sale_price': variation.get('sale_price',0.0) if not variation.get('sale_price','') == '' else 0.0,
                         'stock_quantity': variation.get('stock_quantity') if not variation.get('stock_quantity') in [None,'']  else 0,
                         'product' : product_obj,
-                        'image':variation.get('image',{}).get('src')
+                        'image':variation.get('image').get('src') if variation.get('image') else ''
                     }
 
                     Variation.objects.update_or_create(external_id=variation['id'], defaults=variant_defaults)
