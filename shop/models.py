@@ -33,6 +33,7 @@ class Product(models.Model):
     categories = models.ManyToManyField("shop.Category")
     image = models.URLField(max_length=400, null=True,blank=True)
     variations_ids = models.CharField(max_length=150,null=True,blank=True)
+    description = models.TextField(null=True,blank=True)
     
     class Meta:
         verbose_name = _("product")

@@ -36,7 +36,7 @@ class Command(BaseCommand):
         return response.json()
     
     def handle(self, *args, **options):
-        products = Product.objects.filter(status='publish')
+        products = Product.objects.filter(status='publish').exclude(brand='').exclude(brand=None)
         for product in products:
             url = "https://api.onbuy.com/v2/products"
             category_name = product.categories.first().name.split("&amp;")[0]
@@ -47,8 +47,8 @@ class Command(BaseCommand):
                 "site_id": settings.ONBUY_SITE_ID_UK,
                 "category_id": category.get('results',[])[0].get('category_id'),
                 "live": "1",
-                "brand_name": "Test brand",
-                "product_name": "Super Bra",
+                "brand_name": product.brand,
+                "product_name": product.name,
                 "description": "Comfortable fit, easy release.",
                 "default_image": "http://www.freepngimg.com/download/lion/3-2-lion-png.png",
                 "additional_images": [
