@@ -1,126 +1,130 @@
-import shopify
+import datetime
+import pandas as pd
 from decouple import config
-import json
+import logging
+import requests
 
-SHOPIFY_URL = config('SHOPIFY_URL')
-SHOPIFY_ACCESS_TOKEN = config('SHOPIFY_ACCESS_TOKEN')
-SHOPIFY_API_KEY = config('SHOPIFY_API_KEY')
-SHOPIFY_API_SECRET =config('SHOPIFY_API_SECRET')
-API_VERSION = '2024-01'
-LOCATION_ID = config('LOCATION_ID')
+# Create a logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+# Create file handler
+file_handler = logging.FileHandler("debug2.log")
+file_handler.setLevel(logging.DEBUG)
+
+# Create console handler
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+
+# Create formatter and add it to the handlers
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+console_handler.setFormatter(formatter)
+
+# Add the handlers to the logger
+logger.addHandler(file_handler)
+logger.addHandler(console_handler)
+
+CATEGORIES_PATH = "C:\\dev\\onbuysync\\data\\own-categories 7APR24.xlsx"
+PRODUCT_FEED_PATH = "C:\\dev\\onbuysync\\data\\ONBUY PRODUCT DATA FEED - 3 APR 2024.xlsx"
+
+PRODUCT_UPLOAD_BATCH_SIZE = 5
+
+WOOCOMMERCE_API_VERSION = config('WOOCOMMERCE_API_VERSION')
+ONBUY_SITE_ID_UK = config('ONBUY_SITE_ID_UK')
+ONBUY_SECRET_KEY = config('ONBUY_SECRET_KEY_TEST')
+ONBUY_CONSUMER_KEY = config('ONBUY_CONSUMER_KEY_TEST')
+
+categories_df = pd.read_excel(CATEGORIES_PATH,dtype=str)
+products_df = pd.read_excel(PRODUCT_FEED_PATH)
+
+products_df['ProductName'] = products_df['Brand'] + ' ' + products_df['Name']
 
 
-payload = json.dumps({
-  "site_id": 2000,
-  "category_id": "3407",
-  "mpn": "EXAMPLEMPN",
-  "summary_points": [
-    "summary point 1",
-    "summary point 2"
-  ],
-  "live": "1",
-  "brand_name": "Test brand",
-  "product_name": "Super Bra",
-  "description": "Comfortable fit, easy release.",
-  "default_image": "http://www.freepngimg.com/download/lion/3-2-lion-png.png",
-  "additional_images": [
-    "http://c1.staticflickr.com/9/8381/8613405336_11caf04e28_b.jpg"
-  ],
-  "variant_1": {
-    "feature_id": 102
-  },
-  "variants": [
-    {
-      "variant_1": {
-        "option_id": 620
-      },
-      "default_image": "http://west-moors.co.uk/images/red.png",
-      "rrp": "499.99",
-      "product_codes": [
-        "5034982266920"
-      ],
-      "features": [
-        {
-          "option_id": 93,
-          "name": "slime green"
-        }
-      ],
-      "listings": {
-        "new": {
-          "sku": "v99-5076371426621-NEW",
-          "price": 449.99,
-          "stock": 3
-        }
-      }
-    },
-    {
-      "variant_1": {
-        "option_id": 621
-      },
-      "default_image": "http://west-moors.co.uk/images/blue.png",
-      "rrp": "499.99",
-      "product_codes": [
-        "5011232442754"
-      ],
-      "listings": {
-        "new": {
-          "sku": "v99-51080-7B-NEW",
-          "price": 449.99,
-          "stock": 3
-        }
-      },
-      "features": [
-        {
-          "option_id": 93,
-          "name": "puke green",
-          "hex": "#A3C00F"
-        }
-      ],
-      "product_data": [
-        {
-          "label": "label1",
-          "value": "value1"
-        },
-        {
-          "label": "label2",
-          "value": "value2"
-        }
-      ]
-    },
-    {
-      "variant_1": {
-        "option_id": 622
-      },
-      "default_image": "http://west-moors.co.uk/images/green.png",
-      "rrp": "499.99",
-      "product_codes": [
-        "5031459073043"
-      ],
-      "features": [
-        {
-          "option_id": 93,
-          "name": "putting green"
-        }
-      ],
-      "listings": {
-        "new": {
-          "sku": "v3-94462-7B-NEW",
-          "price": 449.99,
-          "stock": 3
-        }
-      },
-      "product_data": [
-        {
-          "label": "label1",
-          "value": "value1"
-        },
-        {
-          "label": "label2",
-          "value": "value2"
-        }
-      ]
+__token = None
+
+def __get_onbuy_token():
+    
+    global __token
+    
+    if __token:
+        expires_at_timestamp = int(__token['expires_at'])
+        expires_at = datetime.datetime.fromtimestamp(expires_at_timestamp)
+        
+        delta = expires_at - datetime.datetime.now()
+        
+        if delta.total_seconds() > 60:
+            return __token
+    
+    url = 'https://api.onbuy.com/v2/auth/request-token'
+    payload={
+        'secret_key': ONBUY_SECRET_KEY,
+        'consumer_key': ONBUY_CONSUMER_KEY
     }
-  ]
-},indent=4)
+    
+    response = requests.request("POST", url, data=payload)
+    print(response.text)
+    
+    __token = response.json()
+    
+    return __token
 
-print(payload)
+def browse_variants(category_id):
+    url = f"https://api.onbuy.com/v2/categories/{category_id}/variants"
+    params = {
+        "site_id":ONBUY_SITE_ID_UK,
+        "limit":25,
+        "offset":0
+    }
+    
+    token = __get_onbuy_token()
+    
+    headers = {
+        "Authorization":token['access_token']
+    }
+    
+    response = requests.get(url,headers=headers,params=params)
+    if response.status_code != 200:
+        logger.error(response.text)
+        return
+    
+    import pdb; pdb.set_trace()
+
+    return response.json()['results']
+
+for product_id, items in products_df.groupby("Product_id"):
+    products = list()
+    for i, item in items.iterrows():
+        filter = (categories_df['Category']==item.Category) & (categories_df['Subcategory']==item.Subcategory) & \
+            (categories_df['Gender']==item.Gender)    
+        category = categories_df[filter]
+        
+        if category.empty:
+            continue
+        
+        
+        variants = browse_variants(category.iloc[0].OnBuyCategoryID)
+        data = {
+            "uid": int(product_id),
+            "category_id": f"{category.iloc[0].OnBuyCategoryID}",
+            "published": "1",
+            "product_name": item.ProductName,
+            "product_codes":  ["{}".format(b) for b in items["Barcode"]],
+            "description": item.Description,
+            "brand_name": item.Brand,
+            "default_image": item.Picture_1,
+            "product_data": [
+                {
+                    "label": "Season",
+                    "value": item.Season
+                }
+            ],
+            "variant_1": {
+                "feature_id": 102
+            },
+        },
+        
+        import pdb; pdb.set_trace()
+
+        products.append(data)
+    

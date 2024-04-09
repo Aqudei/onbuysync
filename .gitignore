@@ -1,7 +1,7 @@
 venv/
 .env
 data/
-debug.log
+debug*.log
 __pycache__
 db.sqlite3
 *.py[cod]
