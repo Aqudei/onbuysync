@@ -1,5 +1,6 @@
 from argparse import ArgumentParser
 from decimal import Decimal
+import hashlib
 import json
 import os
 import re
@@ -43,8 +44,9 @@ LISTING_BATCH_SIZE = 100
 ONBUY_SITE_ID_UK = config('ONBUY_SITE_ID_UK')
 ONBUY_SECRET_KEY = config('ONBUY_SECRET_KEY_TEST')
 ONBUY_CONSUMER_KEY = config('ONBUY_CONSUMER_KEY_TEST')
+PRODUCT_SKU_PRICE_STOCK_FEED = config("PRODUCT_SKU_PRICE_STOCK_FEED")
 
-CATEGORIES_MAPPING = "C:\\dev\\onbuysync\\data\\own-categories 7APR24.xlsx"
+CATEGORIES_MAPPING = ".\\data\\own-categories 7APR24.xlsx"
 
 logger.info("ONBUY_SITE_ID_UK: {}".format(ONBUY_SITE_ID_UK))
 logger.info("CATEGORIES_MAPPING: {}".format(CATEGORIES_MAPPING))
@@ -56,7 +58,6 @@ def chunk_df(df, chunk_size=32):
     return chunks
 
 class OnBuy():
-    __queue_db = None
     __token = None
     __categories = {}
     __item_counter = 0
@@ -65,8 +66,8 @@ class OnBuy():
         self.__options = options
         self.__token = None
         self.__categories = {}
-        self.__queue_db = db.getDb("./data/results_db.json")
-        
+        self.__checksum_db = db.getDb("data/checksum_db.json")
+
     def __pd_read(self,filename, dtype=None):
         
         _,ext = os.path.splitext(filename)
@@ -492,13 +493,49 @@ class OnBuy():
         
         logger.info("Submitted listing items: {}".format(self.__item_counter))
 
+    def __compute_checksum(self, file_path):
+        # Open the file in binary mode
+        logger.info("Computing checksum: {}".format(file_path))
+        with open(file_path, "rb") as f:
+            # Read the file in chunks to avoid loading the entire file into memory
+            chunk_size = 4096  # You can adjust the chunk size as needed
+            hasher = hashlib.sha256()
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                hasher.update(chunk)
+        
+        # Return the computed checksum as a hexadecimal string
+        return hasher.hexdigest()
+
 
     def update_prices(self,product_feed):
+        do_update = False
+        checksum = self.__compute_checksum(product_feed)
+        old_checksum =  self.__checksum_db.get()
+
+        if len(old_checksum)==1 and old_checksum[0]=={"":""}:
+            self.__checksum_db.add({
+                'checksum':checksum
+            })
+            do_update = True
+        else:
+            do_update = old_checksum[0]['checksum'] != checksum
+            self.__checksum_db.updateById(old_checksum[0]['id'],{
+                'checksum':checksum
+            })
+        
+        if not do_update:
+            logger.warning("Nothing to update. No new product feed found")
+            return
+            
+        logger.info("Updating prices from feed: {}..".format(product_feed))
         url = "https://api.onbuy.com/v2/listings/by-sku"
         batch = 512
         
         product_df = self.__load_products_df(product_feed)
-        my_listings_df = pd.read_csv("./data./my-listings.csv")
+        my_listings_df = pd.read_csv("./data/my-listings.csv")
         my_listings_df.columns = [c.upper() for c in my_listings_df.columns]
         
         
@@ -562,9 +599,9 @@ class OnBuy():
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--start-page",type=int,default=1)
+    parser.add_argument("--update-prices", action='store_true')
     parser.add_argument("--upload-products", action='store_true')
-    parser.add_argument("--update-prices")
-    parser.add_argument("--product-feed")
+    parser.add_argument("--product-feed", default=PRODUCT_SKU_PRICE_STOCK_FEED)
     parser.add_argument("--list-queues")
     parser.add_argument("--read-results-queue")
     parser.add_argument("--delete-listings")
@@ -594,7 +631,7 @@ if __name__ == "__main__":
         products = onbuy.search_product(options.find_product)
     
     if options.update_prices:
-        products = onbuy.update_prices(options.update_prices)
+        products = onbuy.update_prices(PRODUCT_SKU_PRICE_STOCK_FEED)
         
     if options.process_results:
         if not options.product_feed:
